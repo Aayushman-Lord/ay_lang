@@ -1,8 +1,10 @@
-Expression: Term ((PLUS|MINUS) Term)*
+Expression: KEYWORD: 'let' IDENITFIER EQ Expression
+          : Term ((PLUS|MINUS) Term)*
 
 Term: Factor ((MUL|DIV) Factor)*
 
-Factor: INT|FLOAT
+Factor: KEYWORD
+      : INT|FLOAT
       : PLUS|MINUS Factor
       : LPAREN Expression RPAPREN
 

@@ -1,5 +1,5 @@
-use core::{fmt, num};
-use std::{fmt::Alignment::Left, fs, process::exit, vec};
+use core::fmt;
+use std::{fs, process::exit, vec};
 
 //  Token Vector Display trait
 
@@ -21,6 +21,9 @@ use std::{fmt::Alignment::Left, fs, process::exit, vec};
 // ################
 #[derive(Debug, PartialEq, Clone)]
 enum TokenType {
+    KEYWORD,
+    IDENITFIER,
+    EQ,
     INT,
     FLOAT,
     PLUS,
@@ -156,6 +159,35 @@ fn lexer(code: &str) -> Vec<Token> {
             });
             count += 1;
             continue;
+        } else if code_chars[count] == '=' {
+            lexed_code.push(Token {
+                type_: TokenType::EQ,
+                val_: Option::None,
+            });
+        } else if code_chars[count] == 'l'
+            && code_chars[count + 1] == 'e'
+            && code_chars[count + 2] == 't'
+            && code_chars[count + 3] == ' '
+        {
+            count += 4;
+            lexed_code.push(Token {
+                type_: TokenType::KEYWORD,
+                val_: Option::Some("let".to_owned()),
+            })
+        } else if code_chars[count].is_ascii_alphabetic() {
+            let mut id_string = String::from("");
+
+            while code_chars[count].is_ascii_alphabetic() || code_chars[count] == '_' {
+                id_string += code_chars[count].to_string().as_ref();
+            }
+            if id_string.is_empty() {
+                println!("IT is supposed to be IMPOSSIBLE!");
+            }
+
+            lexed_code.push(Token {
+                type_: TokenType::IDENITFIER,
+                val_: Option::Some(id_string),
+            })
         } else {
             println!(
                 "Error: Invalid Token: {} index: {}",
@@ -177,6 +209,7 @@ enum ASTNode {
     Number(NumberNode),
     BinaryOp(BinOpNode),
     UnaryOp(UnaryOpNode),
+    VariableDeclareation(VariableDeclareationNode),
 }
 
 #[derive(Clone, Debug)]
@@ -218,6 +251,11 @@ impl fmt::Display for UnaryOpNode {
     }
 }
 
+#[derive(Debug, Clone)]
+struct VariableDeclareationNode {
+    var_name: String,
+    value: Box<ASTNode>,
+}
 // ###########
 //   PARSER
 // ###########
@@ -246,44 +284,47 @@ impl Parser {
 
     fn factor(&mut self) -> Option<ASTNode> {
         let token = self.current_token.as_ref().unwrap().clone();
-
-        if matches!(token.type_, TokenType::PLUS) {
-            self.advance();
-            let operand = self.factor();
-            return Option::Some(ASTNode::UnaryOp(UnaryOpNode {
-                operand: Box::new(operand.unwrap()),
-                op: TokenType::PLUS,
-            }));
-        } else if matches!(token.type_, TokenType::MINUS) {
-            self.advance();
-            let operand = self.factor();
-            return Option::Some(ASTNode::UnaryOp(UnaryOpNode {
-                operand: Box::new(operand.unwrap()),
-                op: TokenType::MINUS,
-            }));
-        } else if matches!(token.type_, TokenType::INT | TokenType::FLOAT) {
-            self.advance();
-            return Option::Some(ASTNode::Number(NumberNode { token: token }));
-        } else if matches!(token.type_, TokenType::LPAREN) {
-            self.advance();
-            let exp = self.expression();
-
-            if self.current_token.is_some()
-                && self.current_token.as_ref().unwrap().type_ == TokenType::RPAREN
-            {
+        
+        // Handles Numerical factors
+        match token.type_ {
+            TokenType::PLUS | TokenType::MINUS => {
+                let op = token.type_.clone();
                 self.advance();
-                if exp.is_some() {
-                    return exp;
-                } else {
-                    println!("Error: expression is NONE");
-                    exit(1);
-                }
+                let operand = self.factor();
+                return Option::Some(ASTNode::UnaryOp(UnaryOpNode {
+                    operand: Box::new(operand.unwrap()),
+                    op,
+                }));
             }
-            println!("Error: cannot find Right parenthesis");
-            exit(1);
-        }
 
-        Option::None
+            TokenType::INT | TokenType::FLOAT => {
+                self.advance();
+                return Option::Some(ASTNode::Number(NumberNode { token: token }));
+            }
+
+            TokenType::LPAREN => {
+                self.advance();
+                let exp = self.expression();
+
+                if self.current_token.is_some()
+                    && self.current_token.as_ref().unwrap().type_ == TokenType::RPAREN
+                {
+                    self.advance();
+                    if exp.is_some() {
+                        return exp;
+                    } else {
+                        println!("Error: expression is NONE");
+                        exit(1);
+                    }
+                }
+                println!("Error: cannot find Right parenthesis");
+                exit(1);
+            }
+            _ => {
+                println!("Error: Unkown token type.");
+                exit(1);
+            }
+        }
     }
 
     fn term(&mut self) -> Option<ASTNode> {

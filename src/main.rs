@@ -1,5 +1,7 @@
 use core::fmt;
-use std::{fs, process::exit, vec};
+use std::{
+    fs::{self, OpenOptions}, os::linux::raw::stat, process::exit, vec,
+};
 
 //  Token Vector Display trait
 
@@ -32,6 +34,7 @@ enum TokenType {
     DIV,
     LPAREN,
     RPAREN,
+    NL,
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +67,7 @@ fn lexer(code: &str) -> Vec<Token> {
     let mut lexed_code: Vec<Token> = vec![];
 
     while count < code_len {
-        if code_chars[count] == ' ' || code_chars[count] == '\t' {
+        if code_chars[count] == ' ' || code_chars[count] == '\t' || code_chars[count] == '\n' {
             count += 1;
             continue;
         }
@@ -164,6 +167,7 @@ fn lexer(code: &str) -> Vec<Token> {
                 type_: TokenType::EQ,
                 val_: Option::None,
             });
+            count += 1;
         } else if code_chars[count] == 'l'
             && code_chars[count + 1] == 'e'
             && code_chars[count + 2] == 't'
@@ -179,6 +183,7 @@ fn lexer(code: &str) -> Vec<Token> {
 
             while code_chars[count].is_ascii_alphabetic() || code_chars[count] == '_' {
                 id_string += code_chars[count].to_string().as_ref();
+                count += 1;
             }
             if id_string.is_empty() {
                 println!("IT is supposed to be IMPOSSIBLE!");
@@ -188,6 +193,12 @@ fn lexer(code: &str) -> Vec<Token> {
                 type_: TokenType::IDENITFIER,
                 val_: Option::Some(id_string),
             })
+        } else if code_chars[count] == ';' {
+            lexed_code.push(Token {
+                type_: TokenType::NL,
+                val_: Option::None,
+            });
+            count+=1;
         } else {
             println!(
                 "Error: Invalid Token: {} index: {}",
@@ -266,9 +277,22 @@ struct Parser {
 }
 
 impl Parser {
-    fn parse(&mut self) -> ASTNode {
-        let result = self.expression();
-        result.unwrap()
+    fn parse(&mut self) -> Vec<ASTNode> {
+        let mut statements: Vec<ASTNode> = vec![];
+
+        while self.index < self.tokens.len(){
+            let node = self.expression();
+            statements.push(node.unwrap());
+
+            if self.current_token.is_none(){
+                return statements;                
+            }
+
+            if self.current_token.clone().unwrap().type_ == TokenType::NL{ 
+                self.advance();
+            }
+        }
+        statements
     }
 
     fn advance(&mut self) -> Option<Token> {
@@ -282,9 +306,9 @@ impl Parser {
         return self.current_token.clone();
     }
 
-    fn factor(&mut self) -> Option<ASTNode> {
+    fn factor(&mut self) -> Option<ASTNode> {   
         let token = self.current_token.as_ref().unwrap().clone();
-        
+
         // Handles Numerical factors
         match token.type_ {
             TokenType::PLUS | TokenType::MINUS => {
@@ -377,6 +401,41 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Option<ASTNode> {
+        if self.current_token.is_none() {
+            println!("Error: no tokens found");
+            exit(1);
+        }
+
+        // Process variables
+        if self.current_token.as_ref().unwrap().type_ == TokenType::KEYWORD
+            && self.current_token.as_ref().unwrap().val_ == Option::Some("let".to_owned())
+        {
+            self.advance();
+            if self.current_token.as_ref().unwrap().type_ != TokenType::IDENITFIER {
+                println!("Syntax Error: expected an IDENITFIER.");
+                exit(1);
+            }
+            let var_name = self.current_token.clone().unwrap().val_.unwrap();
+            self.advance();
+
+            if self.current_token.as_ref().unwrap().type_ != TokenType::EQ {
+                println!("Syntax Error: expected '=' ");
+            }
+            self.advance();
+
+            let var_value = self.expression();
+
+            if var_value.is_none() {
+                println!("Syntax Error: expected an expression.");
+            }
+
+            return Option::Some(ASTNode::VariableDeclareation(VariableDeclareationNode {
+                var_name: var_name,
+                value: Box::new(var_value.unwrap()),
+            }));
+        }
+
+        // Process numbers
         let mut left: Option<ASTNode> = self.term();
         if left.is_none() {
             left = Some(self.factor().unwrap());
@@ -436,6 +495,7 @@ struct Interpreter {}
 
 impl Interpreter {
     fn visit(&self, node: ASTNode) -> f64 {
+        let mut var_list: Vec<&VariableDeclareationNode> = vec![];
         match node {
             ASTNode::Number(number) => {
                 let num_str = number.token.val_.unwrap();
@@ -483,6 +543,12 @@ impl Interpreter {
                     }
                 }
             }
+            ASTNode::VariableDeclareation(v_node) => {
+                var_list.push(&v_node);
+                let node = *v_node.value;
+                let value = self.visit(node);
+                value
+            }
             _ => {
                 println!("Error: Unkown node");
                 exit(1);
@@ -511,10 +577,11 @@ fn main() {
         index: 0,
         current_token: current_token,
     };
-
-    let parsed_code = parser.parse();
-
+    let count: usize = 0;
     let interpreter = Interpreter {};
-    let result = interpreter.visit(parsed_code);
-    println!("{}", result);
+    let parsed_code_vec = parser.parse();
+
+    for node in parsed_code_vec{
+        println!("{}",interpreter.visit(node));
+    }
 }

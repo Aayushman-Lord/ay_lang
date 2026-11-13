@@ -1,7 +1,6 @@
 use core::fmt;
-use std::{
-    fs::{self, OpenOptions}, os::linux::raw::stat, process::exit, vec,
-};
+use std::collections::HashMap;
+use std::{fs, process::exit, vec};
 
 //  Token Vector Display trait
 
@@ -198,7 +197,7 @@ fn lexer(code: &str) -> Vec<Token> {
                 type_: TokenType::NL,
                 val_: Option::None,
             });
-            count+=1;
+            count += 1;
         } else {
             println!(
                 "Error: Invalid Token: {} index: {}",
@@ -221,6 +220,7 @@ enum ASTNode {
     BinaryOp(BinOpNode),
     UnaryOp(UnaryOpNode),
     VariableDeclareation(VariableDeclareationNode),
+    Identifier_(Identifier)
 }
 
 #[derive(Clone, Debug)]
@@ -267,6 +267,11 @@ struct VariableDeclareationNode {
     var_name: String,
     value: Box<ASTNode>,
 }
+
+#[derive(Debug, Clone)]
+struct Identifier{
+    name:String
+}
 // ###########
 //   PARSER
 // ###########
@@ -280,15 +285,15 @@ impl Parser {
     fn parse(&mut self) -> Vec<ASTNode> {
         let mut statements: Vec<ASTNode> = vec![];
 
-        while self.index < self.tokens.len(){
+        while self.index < self.tokens.len() {
             let node = self.expression();
             statements.push(node.unwrap());
 
-            if self.current_token.is_none(){
-                return statements;                
+            if self.current_token.is_none() {
+                return statements;
             }
 
-            if self.current_token.clone().unwrap().type_ == TokenType::NL{ 
+            if self.current_token.clone().unwrap().type_ == TokenType::NL {
                 self.advance();
             }
         }
@@ -306,7 +311,7 @@ impl Parser {
         return self.current_token.clone();
     }
 
-    fn factor(&mut self) -> Option<ASTNode> {   
+    fn factor(&mut self) -> Option<ASTNode> {
         let token = self.current_token.as_ref().unwrap().clone();
 
         // Handles Numerical factors
@@ -324,6 +329,13 @@ impl Parser {
             TokenType::INT | TokenType::FLOAT => {
                 self.advance();
                 return Option::Some(ASTNode::Number(NumberNode { token: token }));
+            }
+
+            TokenType::IDENITFIER => {
+                self.advance();
+                Option::Some(ASTNode::Identifier_(Identifier{
+                    name: token.val_.unwrap()
+                }))
             }
 
             TokenType::LPAREN => {
@@ -435,7 +447,7 @@ impl Parser {
             }));
         }
 
-        // Process numbers
+        // Process numbers and identifiers math
         let mut left: Option<ASTNode> = self.term();
         if left.is_none() {
             left = Some(self.factor().unwrap());
@@ -491,11 +503,12 @@ impl Parser {
 // Interpreter
 // ############
 
-struct Interpreter {}
+struct Interpreter {
+    var_list: HashMap<String, f64>,
+}
 
 impl Interpreter {
-    fn visit(&self, node: ASTNode) -> f64 {
-        let mut var_list: Vec<&VariableDeclareationNode> = vec![];
+    fn visit(&mut self, node: ASTNode) -> f64 {
         match node {
             ASTNode::Number(number) => {
                 let num_str = number.token.val_.unwrap();
@@ -544,10 +557,17 @@ impl Interpreter {
                 }
             }
             ASTNode::VariableDeclareation(v_node) => {
-                var_list.push(&v_node);
                 let node = *v_node.value;
                 let value = self.visit(node);
+
+                self.var_list.insert(v_node.var_name.to_string(), value);
+
                 value
+            }
+            ASTNode::Identifier_(id_node) => {
+                let var_name = id_node.name;
+                let result = self.var_list.get(&var_name).expect("Error: Variable not found");
+                result.to_owned()
             }
             _ => {
                 println!("Error: Unkown node");
@@ -577,11 +597,12 @@ fn main() {
         index: 0,
         current_token: current_token,
     };
-    let count: usize = 0;
-    let interpreter = Interpreter {};
+    let mut interpreter = Interpreter {
+        var_list: HashMap::new(),
+    };
     let parsed_code_vec = parser.parse();
 
-    for node in parsed_code_vec{
-        println!("{}",interpreter.visit(node));
+    for node in parsed_code_vec {
+        println!("{}", interpreter.visit(node));
     }
 }

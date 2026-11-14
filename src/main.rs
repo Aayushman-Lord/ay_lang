@@ -27,6 +27,7 @@ enum TokenType {
     EQ,
     INT,
     FLOAT,
+    BOOL,
     PLUS,
     MINUS,
     MUL,
@@ -177,6 +178,27 @@ fn lexer(code: &str) -> Vec<Token> {
                 type_: TokenType::KEYWORD,
                 val_: Option::Some("let".to_owned()),
             })
+        } else if code_chars[count] == 't'
+            && code_chars[count + 1] == 'r'
+            && code_chars[count + 2] == 'u'
+            && code_chars[count + 3] == 'e'
+        {
+            count += 4;
+            lexed_code.push(Token {
+                type_: TokenType::BOOL,
+                val_: Option::Some("true".to_owned()),
+            })
+        } else if code_chars[count] == 'f'
+            && code_chars[count + 1] == 'a'
+            && code_chars[count + 2] == 'l'
+            && code_chars[count + 3] == 's'
+            && code_chars[count + 4] == 'e'
+        {
+            count += 5;
+            lexed_code.push(Token {
+                type_: TokenType::BOOL,
+                val_: Option::Some("false".to_owned()),
+            })
         } else if code_chars[count].is_ascii_alphabetic() {
             let mut id_string = String::from("");
 
@@ -216,11 +238,17 @@ fn lexer(code: &str) -> Vec<Token> {
 
 #[derive(Debug, Clone)]
 enum ASTNode {
+    Boolean(BoolNode),
     Number(NumberNode),
     BinaryOp(BinOpNode),
     UnaryOp(UnaryOpNode),
     VariableDeclareation(VariableDeclareationNode),
-    Identifier_(Identifier)
+    Identifier_(Identifier),
+}
+
+#[derive(Debug, Clone)]
+struct BoolNode {
+    token: Token,
 }
 
 #[derive(Clone, Debug)]
@@ -269,8 +297,8 @@ struct VariableDeclareationNode {
 }
 
 #[derive(Debug, Clone)]
-struct Identifier{
-    name:String
+struct Identifier {
+    name: String,
 }
 // ###########
 //   PARSER
@@ -331,10 +359,15 @@ impl Parser {
                 return Option::Some(ASTNode::Number(NumberNode { token: token }));
             }
 
+            TokenType::BOOL => {
+                self.advance();
+                Option::Some(ASTNode::Boolean(BoolNode { token: token }))
+            }
+
             TokenType::IDENITFIER => {
                 self.advance();
-                Option::Some(ASTNode::Identifier_(Identifier{
-                    name: token.val_.unwrap()
+                Option::Some(ASTNode::Identifier_(Identifier {
+                    name: token.val_.unwrap(),
                 }))
             }
 
@@ -504,70 +537,92 @@ impl Parser {
 // ############
 
 struct Interpreter {
-    var_list: HashMap<String, f64>,
+    var_list: HashMap<String, DTypes>,
+}
+
+#[derive(Debug, Clone)]
+enum DTypes {
+    float(f64),
+    str(String),
 }
 
 impl Interpreter {
-    fn visit(&mut self, node: ASTNode) -> f64 {
+    fn visit(&mut self, node: ASTNode) -> DTypes {
         match node {
+            ASTNode::Boolean(b_node) => {
+                return DTypes::str(b_node.token.val_.unwrap());
+            }
             ASTNode::Number(number) => {
                 let num_str = number.token.val_.unwrap();
                 let num: f64 = num_str.parse().unwrap();
-                return num;
+                return DTypes::float(num);
             }
             ASTNode::UnaryOp(u_node) => {
                 let op = u_node.op;
                 if op == TokenType::PLUS {
                     let mut value = Self::visit(self, *u_node.operand);
-                    value = 1.0 * (value);
 
-                    return value;
+                    match value {
+                        DTypes::float(f) => return DTypes::float(f * 1.0),
+                        DTypes::str(s) => {
+                            return DTypes::str(
+                                "Error: cannot use '+' on an alone string".to_owned(),
+                            );
+                        }
+                    };
                 } else if op == TokenType::MINUS {
                     let mut value = Self::visit(self, *u_node.operand);
-                    value = -1.0 * (value);
 
-                    return value;
+                    match value {
+                        DTypes::float(f) => return DTypes::float(f * -1.0),
+                        DTypes::str(s) => {
+                            return DTypes::str(
+                                "Error: cannot use '-' on an alone string".to_owned(),
+                            );
+                        }
+                    };
                 } else {
                     println!("Error: Unkown operator used in unary operation");
                     exit(1);
                 }
             }
             ASTNode::BinaryOp(b_node) => {
-                let mut op = b_node.op;
-                let left = Self::visit(self, *b_node.left_node);
-                let right = Self::visit(self, *b_node.right_node);
+                let op = b_node.op;
+                let left = self.visit(*b_node.left_node);
+                let right = self.visit(*b_node.right_node);
 
-                match op {
-                    TokenType::PLUS => {
-                        return left + right;
-                    }
-                    TokenType::MINUS => {
-                        return left - right;
-                    }
-                    TokenType::MUL => {
-                        return left * right;
-                    }
-                    TokenType::DIV => {
-                        return left / right;
-                    }
-                    _ => {
-                        println!("Error: Unkown Operator used in binary operation.");
-                        exit(1);
-                    }
+                match (left, right) {
+                    (DTypes::float(l), DTypes::float(r)) => match op {
+                        TokenType::PLUS => DTypes::float(l + r),
+                        TokenType::MINUS => DTypes::float(l - r),
+                        TokenType::MUL => DTypes::float(l * r),
+                        TokenType::DIV => DTypes::float(l / r),
+                        _ => {
+                            panic!("Unknown operator in binary operation");
+                        }
+                    },
+
+                    _ => DTypes::str(
+                        "Error: cannot perform arithmetic on non-numeric values".to_owned(),
+                    ),
                 }
-            }
+            }   
             ASTNode::VariableDeclareation(v_node) => {
                 let node = *v_node.value;
                 let value = self.visit(node);
 
-                self.var_list.insert(v_node.var_name.to_string(), value);
+                self.var_list.insert(v_node.var_name.to_string(), value.clone());
 
                 value
             }
             ASTNode::Identifier_(id_node) => {
                 let var_name = id_node.name;
-                let result = self.var_list.get(&var_name).expect("Error: Variable not found");
-                result.to_owned()
+                let result = self
+                    .var_list
+                    .get(&var_name)
+                    .expect("Error: Variable not found");
+                
+                result.clone()
             }
             _ => {
                 println!("Error: Unkown node");
@@ -603,6 +658,9 @@ fn main() {
     let parsed_code_vec = parser.parse();
 
     for node in parsed_code_vec {
-        println!("{}", interpreter.visit(node));
+        match interpreter.visit(node){
+            DTypes::float(f) => println!("{}", f),
+            DTypes::str(s) => println!("{}", s)
+        }
     }
 }

@@ -1,5 +1,9 @@
 Expression: KEYWORD: 'let' IDENITFIER EQ Expression
-          : Term ((PLUS|MINUS) Term)*
+          : Comprasion
+
+Comprasion: Arthmatic (Comprasion_op Arthmatic )* 
+
+Arthmatic: Term ((PLUS|MINUS) Term)*
 
 Term: Factor ((MUL|DIV) Factor)*
 
@@ -10,3 +14,4 @@ Factor: true | false
       : LPAREN Expression RPAPREN
       : +Factor
       : -Factor
+      

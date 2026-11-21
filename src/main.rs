@@ -2,6 +2,8 @@ use core::fmt;
 use std::collections::HashMap;
 use std::{fs, process::exit, vec};
 
+use crate::TokenType::{GREATERTHANEQUALTO, LESSTHAN, LESSTHANEQUALTO};
+
 //  Token Vector Display trait
 
 // struct TokenVector {
@@ -35,6 +37,13 @@ enum TokenType {
     LPAREN,
     RPAREN,
     NL,
+    // comprasion ops
+    EQUALTO,
+    GREATERTHAN,
+    LESSTHAN,
+    GREATERTHANEQUALTO,
+    LESSTHANEQUALTO,
+    NOTEQUALTO,
 }
 
 #[derive(Debug, Clone)]
@@ -168,6 +177,42 @@ fn lexer(code: &str) -> Vec<Token> {
                 val_: Option::None,
             });
             count += 1;
+        } else if code_chars[count] == '=' && code_chars[count + 1] == '=' {
+            count += 2;
+            lexed_code.push(Token {
+                type_: TokenType::EQUALTO,
+                val_: Option::None,
+            });
+        } else if code_chars[count] == '>' && code_chars[count + 1] == '=' {
+            count += 2;
+            lexed_code.push(Token {
+                type_: TokenType::GREATERTHANEQUALTO,
+                val_: Option::None,
+            });
+        } else if code_chars[count] == '<' && code_chars[count + 1] == '=' {
+            count += 2;
+            lexed_code.push(Token {
+                type_: TokenType::LESSTHANEQUALTO,
+                val_: Option::None,
+            });
+        } else if code_chars[count] == '!' && code_chars[count + 1] == '=' {
+            count += 2;
+            lexed_code.push(Token {
+                type_: TokenType::NOTEQUALTO,
+                val_: Option::None,
+            });
+        } else if code_chars[count] == '>' {
+            count += 1;
+            lexed_code.push(Token {
+                type_: TokenType::GREATERTHAN,
+                val_: Option::None,
+            });
+        } else if code_chars[count] == '<' {
+            count += 1;
+            lexed_code.push(Token {
+                type_: TokenType::LESSTHAN,
+                val_: Option::None,
+            });
         } else if code_chars[count] == 'l'
             && code_chars[count + 1] == 'e'
             && code_chars[count + 2] == 't'
@@ -244,6 +289,7 @@ enum ASTNode {
     UnaryOp(UnaryOpNode),
     VariableDeclareation(VariableDeclareationNode),
     Identifier_(Identifier),
+    comprasion(CompOpNode)
 }
 
 #[derive(Debug, Clone)]
@@ -300,6 +346,14 @@ struct VariableDeclareationNode {
 struct Identifier {
     name: String,
 }
+
+#[derive(Debug, Clone)]
+struct CompOpNode{
+    left: Box<ASTNode>,
+    op: TokenType,
+    right: Box<ASTNode>
+}
+
 // ###########
 //   PARSER
 // ###########
@@ -445,42 +499,7 @@ impl Parser {
         Option::None
     }
 
-    fn expression(&mut self) -> Option<ASTNode> {
-        if self.current_token.is_none() {
-            println!("Error: no tokens found");
-            exit(1);
-        }
-
-        // Process variables
-        if self.current_token.as_ref().unwrap().type_ == TokenType::KEYWORD
-            && self.current_token.as_ref().unwrap().val_ == Option::Some("let".to_owned())
-        {
-            self.advance();
-            if self.current_token.as_ref().unwrap().type_ != TokenType::IDENITFIER {
-                println!("Syntax Error: expected an IDENITFIER.");
-                exit(1);
-            }
-            let var_name = self.current_token.clone().unwrap().val_.unwrap();
-            self.advance();
-
-            if self.current_token.as_ref().unwrap().type_ != TokenType::EQ {
-                println!("Syntax Error: expected '=' ");
-            }
-            self.advance();
-
-            let var_value = self.expression();
-
-            if var_value.is_none() {
-                println!("Syntax Error: expected an expression.");
-            }
-
-            return Option::Some(ASTNode::VariableDeclareation(VariableDeclareationNode {
-                var_name: var_name,
-                value: Box::new(var_value.unwrap()),
-            }));
-        }
-
-        // Process numbers and identifiers math
+    fn arithmetic(&mut self) -> Option<ASTNode> {
         let mut left: Option<ASTNode> = self.term();
         if left.is_none() {
             left = Some(self.factor().unwrap());
@@ -530,6 +549,97 @@ impl Parser {
         }
         Option::None
     }
+
+    fn comprasion(&mut self) -> Option<ASTNode>{
+        let mut left: Option<ASTNode> = self.arithmetic();
+        if left.is_none() {
+            left = Some(self.factor().unwrap());
+        }
+
+        let mut trm: CompOpNode;
+
+        if self.current_token.as_ref().is_some()
+            && matches!(
+                self.current_token.as_ref().unwrap().type_,
+                TokenType::EQUALTO | TokenType::GREATERTHAN | TokenType::NOTEQUALTO | TokenType::LESSTHAN | TokenType::GREATERTHANEQUALTO | TokenType::LESSTHANEQUALTO
+            )
+        {
+            let op_token = self.current_token.clone();
+            self.advance();
+            let right = self.arithmetic();
+
+            trm =  CompOpNode {
+                left: Box::new(left.unwrap()),
+                right: Box::new(right.unwrap()),
+                op: op_token.unwrap().type_,
+            };
+
+            while self.current_token.as_ref().is_some()
+                && matches!(
+                    self.current_token.as_ref().unwrap().type_,
+                    TokenType::EQUALTO | TokenType::GREATERTHAN | TokenType::NOTEQUALTO | TokenType::LESSTHAN | TokenType::GREATERTHANEQUALTO | TokenType::LESSTHANEQUALTO
+                )
+            {
+                let left_node = trm.clone();
+                let op = self.current_token.as_ref().unwrap().clone();
+                self.advance();
+                let right_node = self.arithmetic();
+
+                trm = CompOpNode {
+                    left: Box::new(ASTNode::comprasion(left_node)),
+                    op: op.type_,
+                    right: Box::new(right_node.unwrap()),
+                };
+            }
+
+            return Option::Some(ASTNode::comprasion(trm));
+        }
+
+        if left.is_some() {
+            return Option::Some(left.unwrap());
+        }
+        Option::None
+    }
+
+    fn expression(&mut self) -> Option<ASTNode> {
+        if self.current_token.is_none() {
+            println!("Error: no tokens found");
+            exit(1);
+        }
+
+        // Process variables
+        if self.current_token.as_ref().unwrap().type_ == TokenType::KEYWORD
+            && self.current_token.as_ref().unwrap().val_ == Option::Some("let".to_owned())
+        {
+            self.advance();
+            if self.current_token.as_ref().unwrap().type_ != TokenType::IDENITFIER {
+                println!("Syntax Error: expected an IDENITFIER.");
+                exit(1);
+            }
+            let var_name = self.current_token.clone().unwrap().val_.unwrap();
+            self.advance();
+
+            if self.current_token.as_ref().unwrap().type_ != TokenType::EQ {
+                println!("Syntax Error: expected '=' ");
+            }
+            self.advance();
+
+            let var_value = self.arithmetic();
+
+            if var_value.is_none() {
+                println!("Syntax Error: expected an expression.");
+            }
+
+            return Option::Some(ASTNode::VariableDeclareation(VariableDeclareationNode {
+                var_name: var_name,
+                value: Box::new(var_value.unwrap()),
+            }));
+        }
+        else {
+            return self.comprasion();
+        }
+    }
+
 }
 
 // ############
@@ -606,12 +716,19 @@ impl Interpreter {
                         "Error: cannot perform arithmetic on non-numeric values".to_owned(),
                     ),
                 }
-            }   
+            }
+            ASTNode::comprasion(b_node) => {
+                let op = b_node.op;
+                let left = self.visit(*b_node.left);
+                let right = self.visit(*b_node.right);
+                todo!();
+            }
             ASTNode::VariableDeclareation(v_node) => {
                 let node = *v_node.value;
                 let value = self.visit(node);
 
-                self.var_list.insert(v_node.var_name.to_string(), value.clone());
+                self.var_list
+                    .insert(v_node.var_name.to_string(), value.clone());
 
                 value
             }
@@ -621,7 +738,7 @@ impl Interpreter {
                     .var_list
                     .get(&var_name)
                     .expect("Error: Variable not found");
-                
+
                 result.clone()
             }
             _ => {
@@ -658,9 +775,9 @@ fn main() {
     let parsed_code_vec = parser.parse();
 
     for node in parsed_code_vec {
-        match interpreter.visit(node){
+        match interpreter.visit(node) {
             DTypes::float(f) => println!("{}", f),
-            DTypes::str(s) => println!("{}", s)
+            DTypes::str(s) => println!("{}", s),
         }
     }
 }

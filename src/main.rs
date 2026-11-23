@@ -1,8 +1,7 @@
-use core::fmt;
+use core::{fmt, panic};
 use std::collections::HashMap;
+use std::fmt::Alignment::Right;
 use std::{fs, process::exit, vec};
-
-use crate::TokenType::{GREATERTHANEQUALTO, LESSTHAN, LESSTHANEQUALTO};
 
 //  Token Vector Display trait
 
@@ -76,7 +75,7 @@ fn lexer(code: &str) -> Vec<Token> {
     let mut lexed_code: Vec<Token> = vec![];
 
     while count < code_len {
-        if code_chars[count] == ' ' || code_chars[count] == '\t' || code_chars[count] == '\n' {
+        if code_chars[count] == ' ' || code_chars[count] == '\t' {
             count += 1;
             continue;
         }
@@ -247,7 +246,9 @@ fn lexer(code: &str) -> Vec<Token> {
         } else if code_chars[count].is_ascii_alphabetic() {
             let mut id_string = String::from("");
 
-            while code_chars[count].is_ascii_alphabetic() || code_chars[count] == '_' {
+            while count < code_len
+                && (code_chars[count].is_ascii_alphabetic() || code_chars[count] == '_')
+            {
                 id_string += code_chars[count].to_string().as_ref();
                 count += 1;
             }
@@ -259,7 +260,7 @@ fn lexer(code: &str) -> Vec<Token> {
                 type_: TokenType::IDENITFIER,
                 val_: Option::Some(id_string),
             })
-        } else if code_chars[count] == ';' {
+        } else if code_chars[count] == ';' || code_chars[count] == '\n' {
             lexed_code.push(Token {
                 type_: TokenType::NL,
                 val_: Option::None,
@@ -289,7 +290,7 @@ enum ASTNode {
     UnaryOp(UnaryOpNode),
     VariableDeclareation(VariableDeclareationNode),
     Identifier_(Identifier),
-    comprasion(CompOpNode)
+    Comprasion(CompOpNode),
 }
 
 #[derive(Debug, Clone)]
@@ -348,10 +349,10 @@ struct Identifier {
 }
 
 #[derive(Debug, Clone)]
-struct CompOpNode{
+struct CompOpNode {
     left: Box<ASTNode>,
     op: TokenType,
-    right: Box<ASTNode>
+    right: Box<ASTNode>,
 }
 
 // ###########
@@ -375,7 +376,11 @@ impl Parser {
                 return statements;
             }
 
-            if self.current_token.clone().unwrap().type_ == TokenType::NL {
+            while self
+                .current_token
+                .as_ref()
+                .is_some_and(|t| t.type_ == TokenType::NL)
+            {
                 self.advance();
             }
         }
@@ -550,25 +555,29 @@ impl Parser {
         Option::None
     }
 
-    fn comprasion(&mut self) -> Option<ASTNode>{
+    fn comprasion(&mut self) -> Option<ASTNode> {
         let mut left: Option<ASTNode> = self.arithmetic();
         if left.is_none() {
             left = Some(self.factor().unwrap());
         }
-
         let mut trm: CompOpNode;
 
         if self.current_token.as_ref().is_some()
             && matches!(
                 self.current_token.as_ref().unwrap().type_,
-                TokenType::EQUALTO | TokenType::GREATERTHAN | TokenType::NOTEQUALTO | TokenType::LESSTHAN | TokenType::GREATERTHANEQUALTO | TokenType::LESSTHANEQUALTO
+                TokenType::EQUALTO
+                    | TokenType::GREATERTHAN
+                    | TokenType::NOTEQUALTO
+                    | TokenType::LESSTHAN
+                    | TokenType::GREATERTHANEQUALTO
+                    | TokenType::LESSTHANEQUALTO
             )
         {
             let op_token = self.current_token.clone();
             self.advance();
             let right = self.arithmetic();
 
-            trm =  CompOpNode {
+            trm = CompOpNode {
                 left: Box::new(left.unwrap()),
                 right: Box::new(right.unwrap()),
                 op: op_token.unwrap().type_,
@@ -577,7 +586,12 @@ impl Parser {
             while self.current_token.as_ref().is_some()
                 && matches!(
                     self.current_token.as_ref().unwrap().type_,
-                    TokenType::EQUALTO | TokenType::GREATERTHAN | TokenType::NOTEQUALTO | TokenType::LESSTHAN | TokenType::GREATERTHANEQUALTO | TokenType::LESSTHANEQUALTO
+                    TokenType::EQUALTO
+                        | TokenType::GREATERTHAN
+                        | TokenType::NOTEQUALTO
+                        | TokenType::LESSTHAN
+                        | TokenType::GREATERTHANEQUALTO
+                        | TokenType::LESSTHANEQUALTO
                 )
             {
                 let left_node = trm.clone();
@@ -586,13 +600,13 @@ impl Parser {
                 let right_node = self.arithmetic();
 
                 trm = CompOpNode {
-                    left: Box::new(ASTNode::comprasion(left_node)),
+                    left: Box::new(ASTNode::Comprasion(left_node)),
                     op: op.type_,
                     right: Box::new(right_node.unwrap()),
                 };
             }
 
-            return Option::Some(ASTNode::comprasion(trm));
+            return Option::Some(ASTNode::Comprasion(trm));
         }
 
         if left.is_some() {
@@ -624,7 +638,7 @@ impl Parser {
             }
             self.advance();
 
-            let var_value = self.arithmetic();
+            let var_value = self.comprasion();
 
             if var_value.is_none() {
                 println!("Syntax Error: expected an expression.");
@@ -634,12 +648,10 @@ impl Parser {
                 var_name: var_name,
                 value: Box::new(var_value.unwrap()),
             }));
-        }
-        else {
+        } else {
             return self.comprasion();
         }
     }
-
 }
 
 // ############
@@ -654,6 +666,7 @@ struct Interpreter {
 enum DTypes {
     float(f64),
     str(String),
+    boolean(bool)
 }
 
 impl Interpreter {
@@ -674,20 +687,20 @@ impl Interpreter {
 
                     match value {
                         DTypes::float(f) => return DTypes::float(f * 1.0),
-                        DTypes::str(s) => {
+                        _ => {
                             return DTypes::str(
-                                "Error: cannot use '+' on an alone string".to_owned(),
+                                "Error: cannot use '+' on an alone string/bool".to_owned(),
                             );
-                        }
+                        },
                     };
                 } else if op == TokenType::MINUS {
                     let mut value = Self::visit(self, *u_node.operand);
 
                     match value {
                         DTypes::float(f) => return DTypes::float(f * -1.0),
-                        DTypes::str(s) => {
+                        _=> {
                             return DTypes::str(
-                                "Error: cannot use '-' on an alone string".to_owned(),
+                                "Error: cannot use '-' on an alone string/bool".to_owned(),
                             );
                         }
                     };
@@ -711,16 +724,68 @@ impl Interpreter {
                             panic!("Unknown operator in binary operation");
                         }
                     },
-
+                    (DTypes::str(l), DTypes::float(r))=> match op{
+                        TokenType::PLUS => DTypes::str(l + &r.to_string()),
+                        _ => {
+                            panic!("Error: cannot use operator here");
+                        }
+                    },
+                    (DTypes::str(l), DTypes::str(r))=> match op{
+                        TokenType::PLUS => DTypes::str(l + &r),
+                        _ => {
+                            panic!("Error: cannot use operator here");
+                        }
+                    },
                     _ => DTypes::str(
                         "Error: cannot perform arithmetic on non-numeric values".to_owned(),
                     ),
                 }
             }
-            ASTNode::comprasion(b_node) => {
+            ASTNode::Comprasion(b_node) => {
                 let op = b_node.op;
                 let left = self.visit(*b_node.left);
                 let right = self.visit(*b_node.right);
+                
+                match (left, right){
+                    (DTypes::float(l), DTypes::float(r)) => match op{
+                        TokenType::EQUALTO => {
+                            if l == r{
+                                return DTypes::boolean(true);
+                            }
+                            return DTypes::boolean(false)
+                        },
+                        TokenType::NOTEQUALTO => {
+                            if l != r{
+                                return DTypes::boolean(true);
+                            }
+                            return DTypes::boolean(false)
+                        },
+                        TokenType::LESSTHAN => {
+                            if l < r{
+                                return DTypes::boolean(true);
+                            }
+                            return DTypes::boolean(false)
+                        },TokenType::GREATERTHAN => {
+                            if l > r{
+                                return DTypes::boolean(true);
+                            }
+                            return DTypes::boolean(false)
+                        },TokenType::LESSTHANEQUALTO => {
+                            if l <= r{
+                                return DTypes::boolean(true);
+                            }
+                            return DTypes::boolean(false)
+                        },TokenType::GREATERTHANEQUALTO => {
+                            if l >= r{
+                                return DTypes::boolean(true);
+                            }
+                            return DTypes::boolean(false)
+                        },
+                        _=> panic!("Error: unkown Op.")
+                    },
+                    _=> panic!("Error: mismatched Dtypes")
+                }
+
                 todo!();
             }
             ASTNode::VariableDeclareation(v_node) => {
@@ -778,6 +843,7 @@ fn main() {
         match interpreter.visit(node) {
             DTypes::float(f) => println!("{}", f),
             DTypes::str(s) => println!("{}", s),
+            DTypes::boolean(b) => println!("{}", b),
         }
     }
 }

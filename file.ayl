@@ -1,6 +1,6 @@
-let a = 1;
-let b = 2;
-let c = 3;
-let z = 4;
+let a  = true;
+let b = false;
 
-a+b+c+z;
+let c = 3 > 4; 
+
+c
